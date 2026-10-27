@@ -899,17 +899,6 @@ local Window = Rayfield:CreateWindow({
 })
 if getgenv then getgenv().__NovaWindow = Window end
 
--- El stock parquea su UI en gethui() (contenedor protegido). El código que
--- llega por HttpGet corre con capability REDUCIDA, así que escribir esa UI
--- desde los hilos de Nova (task.spawn) lanza "lacking capability Plugin".
--- elevateThread() sube la identidad del hilo ACTUAL; hay que llamarla dentro
--- de cada bucle que toque la UI (al inicio de su task.spawn).
-local function elevateThread()
-	pcall(function() if setthreadidentity then setthreadidentity(8) end end)
-	pcall(function() if syn and syn.set_thread_identity then syn.set_thread_identity(8) end end)
-	pcall(function() if setidentity then setidentity(8) end end)
-end
-
 --------------------------------------------------------------------------
 -- ADAPTADOR: añade al stock los métodos que la build de Aster tenía de más.
 -- (El stock acepta props PascalCase, así que no hace falta traducir claves.)
@@ -1053,7 +1042,7 @@ end
 
 -- ===== OVERVIEW (dashboard: groupbox 2 columnas + Status vivo + Progress + ButtonRow) =====
 local tOverview = mkTab("Overview", "layout-dashboard")
-tOverview:CreateParagraph({ Name = "Nova Hub", Text = "Hub sobre Rayfield Gen2 (la misma librería que Aster). El Halloween (pestaña Adventure) solo knockea de noche; el juego impone ~5s entre casas." })
+tOverview:CreateParagraph({ Name = "Nova Hub", Text = "Hub standalone sobre Rayfield Gen2 (vendorizado, tema Aster). El Halloween (pestaña Adventure) solo knockea de noche; el juego impone ~5s entre casas." })
 local gEstado = tOverview:AddLeftGroupbox({ Name = "Estado" })
 local gAtajos = tOverview:AddRightGroupbox({ Name = "Atajos" })
 local stNight  = gEstado:CreateStatus({ Name = "Trick-or-Treat", Text = "…" })
@@ -1063,21 +1052,18 @@ gAtajos:CreateButtonRow({ Buttons = {
 	{ Name = "Todo OFF", Callback = function() panic(); pcall(function() Window:Notify({ Title = "Nova", Content = "Todo apagado", Icon = "power" }) end) end },
 	{ Name = "Ir a Halloween", Callback = function() pcall(function() Window:SelectTab(tAdv) end) end },
 } })
--- updater vivo. Conducido por Heartbeat (no task.spawn): el callback hereda la
--- capability del hilo que conecta, que SÍ puede escribir la UI del stock; un
--- task.spawn la pierde cuando Nova llega por HttpGet.
-do
-	local acc = 2
-	local conn
-	conn = RunService.Heartbeat:Connect(function(dt)
-		if not Window or Window.unloaded then if conn then conn:Disconnect() end return end
-		acc = acc + dt
-		if acc < 2 then return end
-		acc = 0
+-- updater vivo del dashboard. NOTA: el stock parquea su UI en gethui()
+-- (protegida); con Nova cargada por `loadstring(HttpGet)` bajo Potassium los
+-- hilos de fondo no tienen capability para reescribir esas instancias, así que
+-- estos :Set son no-op silenciosos (el pcall los traga) y el panel se queda con
+-- el texto inicial. Bajo un loader permisivo (o carga inline) sí se actualiza.
+-- No afecta a la automatización, que usa remotes (no requieren capability).
+task.spawn(function()
+	while Window and not Window.unloaded do
 		local night = canToT()
 		local ready, total = houseReadyCounts()
 		local s = secsUntilChange()
-		local __ok, __err = pcall(function()
+		pcall(function()
 			if night then
 				stNight:Set(s and ("Noche · %ds"):format(math.floor(s)) or "DISPONIBLE (noche)")
 				stNight:SetTone("positive")
@@ -1089,9 +1075,9 @@ do
 			stHouses:SetTone(ready > 0 and "positive" or "neutral")
 			prHouses:Set(total > 0 and math.floor(ready / total * 100) or 0)
 		end)
-		if not getgenv().__nova_dbg1 then getgenv().__nova_dbg1 = true; print("[NOVA-DBG] HB first set ok="..tostring(__ok).." err="..tostring(__err)) end
-	end)
-end
+		task.wait(2)
+	end
+end)
 
 -- ===== FARM =====
 local tFarm = mkTab("Farm", "sprout")
