@@ -1,3 +1,4 @@
 # Roblox executor temp/payload files
 _run_*.lua
 *.tmp
+.probe/

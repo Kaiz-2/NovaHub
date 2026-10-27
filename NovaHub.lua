@@ -827,46 +827,187 @@ local function onToggle(flag, value)
 end
 
 --========================================================================
---  UI  ·  Rayfield Gen2  (la MISMA librería que usa Aster, tomada de memoria)
+--  UI  ·  Rayfield Gen2  (STANDALONE — lib pública vendorizada en el repo)
 --========================================================================
--- Aster ya cargó Rayfield Gen2 en el cliente; recuperamos su tabla con getgc
--- para construir Nova con idéntico look/metodología, sin loaders externos.
--- NOTA: esta build resuelve las props en PascalCase (Name/Value/Callback/...).
-local Rayfield
-if getgc then
-	for _, o in ipairs(getgc(true)) do
-		if type(o) == "table"
-		and type(rawget(o, "CreateWindow")) == "function"
-		and type(rawget(o, "Notify")) == "function"
-		and rawget(o, "Flags") ~= nil then
-			Rayfield = o; break
-		end
-	end
-	if not Rayfield then
-		for _, o in ipairs(getgc(true)) do
-			if type(o) == "table" and type(rawget(o, "CreateWindow")) == "function" then
-				Rayfield = o; break
-			end
-		end
-	end
-end
-if not Rayfield then
-	warn("[Nova Hub] No encontré Rayfield Gen2 en memoria. Abre Aster primero y reinyecta Nova.")
+-- Nova ya NO depende de Aster: carga su propia copia de Rayfield Gen2 1.2.0
+-- (el bundled.luau oficial, fijado en el repo) y le aplica el tema "Aster"
+-- extraído en vivo. El stock usa camelCase pero ACEPTA PascalCase, así que el
+-- resto de Nova (escrito en PascalCase) funciona igual. Lo que la build de
+-- Aster tenía de más (Groupbox/Status/ButtonRow/Theme&ConfigManager y varios
+-- Window:*) se emula aquí con un adaptador fino sobre el stock.
+
+-- Paleta "Aster" (13 colores semánticos) mapeada al esquema de tema del stock.
+-- Es un tema PARCIAL: el resto de claves caen al default de la lib.
+local AsterTheme = {
+	WindowColor = ColorSequence.new({
+		ColorSequenceKeypoint.new(0,      Color3.fromRGB(13, 19, 21)),
+		ColorSequenceKeypoint.new(0.9999, Color3.fromRGB(22, 32, 34)),
+		ColorSequenceKeypoint.new(1,      Color3.fromRGB(35, 49, 49)),
+	}),
+	ShadowColor           = Color3.fromRGB(8, 12, 13),
+	ElementStroke         = Color3.fromRGB(40, 57, 56),
+	ElementGradient       = ColorSequence.new(Color3.fromRGB(18, 26, 28), Color3.fromRGB(22, 32, 34)),
+	ElementStrokeGradient = ColorSequence.new(Color3.fromRGB(40, 57, 56), Color3.fromRGB(66, 101, 89)),
+	ElementStrokeHover    = Color3.fromRGB(66, 101, 89),
+	TabColor              = Color3.fromRGB(233, 244, 237),
+	TabBackground         = ColorSequence.new(Color3.fromRGB(35, 49, 49), Color3.fromRGB(18, 26, 28)),
+	TabStroke             = ColorSequence.new(Color3.fromRGB(66, 101, 89), Color3.fromRGB(40, 57, 56)),
+	SliderBackground      = Color3.fromRGB(35, 49, 49),
+	SliderBackgroundHover = Color3.fromRGB(66, 101, 89),
+	SliderProgress        = ColorSequence.new(Color3.fromRGB(111, 222, 173), Color3.fromRGB(80, 170, 130)),
+	SliderStroke          = Color3.fromRGB(233, 244, 237),
+	SliderHandle          = Color3.fromRGB(233, 244, 237),
+	ActionColor           = Color3.fromRGB(233, 244, 237),
+	ContentColor          = Color3.fromRGB(233, 244, 237),
+	TitlingColor          = Color3.fromRGB(233, 244, 237),
+	ElementTextHoverColor = Color3.fromRGB(233, 244, 237),
+	DropdownHighlight     = Color3.fromRGB(111, 222, 173),
+	AccentColor           = Color3.fromRGB(111, 222, 173),
+	AccentStroke          = Color3.fromRGB(132, 226, 170),
+	StatBackground        = Color3.fromRGB(18, 26, 28),
+	ToggleTrack           = Color3.fromRGB(12, 37, 29),
+	PlaceholderColor      = Color3.fromRGB(138, 162, 155),
+	NeutralButton         = Color3.fromRGB(35, 49, 49),
+	NeutralButtonHover    = Color3.fromRGB(66, 101, 89),
+	ErrorColor            = Color3.fromRGB(185, 70, 76),
+	ErrorStrokeColor      = Color3.fromRGB(244, 125, 132),
+}
+
+-- Carga de la librería (vendorizada en el repo; el repo debe ser PÚBLICO).
+local RAYFIELD_URL = "https://raw.githubusercontent.com/Kaiz-2/NovaHub/main/Rayfield.lua"
+local okLib, Rayfield = pcall(function()
+	return loadstring(game:HttpGet(RAYFIELD_URL))()
+end)
+if not okLib or type(Rayfield) ~= "table" then
+	warn("[Nova Hub] No pude cargar Rayfield Gen2 desde el repo: " .. tostring(Rayfield))
+	warn("[Nova Hub] ¿El repo Kaiz-2/NovaHub es público? URL: " .. RAYFIELD_URL)
 	return
 end
 
+-- si se reinyecta Nova, descarga la ventana anterior
+if getgenv then
+	local prev = getgenv().__NovaWindow
+	if prev then pcall(function() prev:Unload() end); getgenv().__NovaWindow = nil end
+end
+
 local Window = Rayfield:CreateWindow({
-	Name = "Nova Hub",
-	Subtitle = "Blue Lock Farm",
-	SidebarLayout = true,
-	Configuration = { AutoSave = true, AutoLoad = false, FileName = "NovaHub_BlueLockFarm" },
+	name = "Nova Hub",
+	subtitle = "Blue Lock Farm",
+	sidebarLayout = true,
+	theme = AsterTheme,
+	configuration = { autoSave = true, autoLoad = false, fileName = "NovaHub_BlueLockFarm" },
 })
+if getgenv then getgenv().__NovaWindow = Window end
+
+--------------------------------------------------------------------------
+-- ADAPTADOR: añade al stock los métodos que la build de Aster tenía de más.
+-- (El stock acepta props PascalCase, así que no hace falta traducir claves.)
+--------------------------------------------------------------------------
+-- Window:* que no existen en el stock -> se mapean o se vuelven no-op.
+do
+	local W = Window
+	W.SelectTab   = W.SelectTab   or function(self, t) return self:Navigate(t) end
+	W.Destroy     = W.Destroy     or function(self) return self:Unload() end
+	W.SetMinimized = W.SetMinimized or function(self, b) if b then self:Hide() else self:Show() end end
+	W.SetBackground = W.SetBackground or function() end
+	W.SetBackgroundTransparency = W.SetBackgroundTransparency or function() end
+	W.ListBackgrounds = W.ListBackgrounds or function() return { "None" } end
+	W.SetDensity  = W.SetDensity  or function() end
+	W.SetKeybind  = W.SetKeybind  or function() end
+	W.Confirm     = W.Confirm     or function(self, p)
+		local opts = {}
+		for _, o in ipairs(p.Options or p.options or {}) do
+			opts[#opts + 1] = { text = o.Text or o.text, style = o.Style or o.style, callback = o.Callback or o.callback }
+		end
+		return self:Popup({ title = p.Title or p.title, content = p.Content or p.content, options = opts })
+	end
+end
+
+-- Emula el "groupbox" de Aster: pinta una Section como cabecera y reenvía la
+-- creación de elementos a la propia pestaña (layout en una sola columna).
+local function makeGroupbox(tab, props)
+	local title = props and (props.Name or props.name)
+	if title then pcall(function() tab:CreateSection({ name = title }) end) end
+	local g = {}
+	for _, m in ipairs({
+		"CreateToggle", "CreateSlider", "CreateDropdown", "CreateInput", "CreateKeybind",
+		"CreateColorPicker", "CreateButton", "CreateProgress", "CreateStat",
+		"CreateStatus", "CreateParagraph", "CreateButtonRow", "CreateSection",
+		"CreateDivider", "CreateText",
+	}) do
+		g[m] = function(_, p) return tab[m](tab, p) end
+	end
+	g.Collapse = function() end; g.Expand = function() end
+	g.SetTitle = function() end; g.SetBadge = function() end
+	return g
+end
+
+-- Parchea una pestaña del stock con los Create* extra que usa Nova.
+local function patchTab(tab)
+	tab.CreateGroupbox   = function(self, p) return makeGroupbox(self, p) end
+	tab.AddLeftGroupbox  = tab.CreateGroupbox
+	tab.AddRightGroupbox = tab.CreateGroupbox
+	-- Status (texto vivo) -> Text del stock, con :Set/:SetTone/:SetName.
+	tab.CreateStatus = function(self, p)
+		local t = self:CreateText({ name = p.Name or p.name, text = p.Text or p.text or "" })
+		return {
+			Set     = function(_, v) pcall(function() t:Set(tostring(v)) end) end,
+			Get     = function() return t.text end,
+			SetTone = function() end,
+			SetColor = function() end,
+			SetName = function(_, n) pcall(function() t:SetTitle(n) end) end,
+			Destroy = function() pcall(function() t:Remove() end) end,
+		}
+	end
+	-- Paragraph (título + cuerpo) -> Text del stock.
+	tab.CreateParagraph = function(self, p)
+		local t = self:CreateText({ name = p.Name or p.name, text = p.Text or p.text or "" })
+		return {
+			Set      = function(_, body) pcall(function() t:Set(body) end) end,
+			SetTitle = function(_, x) pcall(function() t:SetTitle(x) end) end,
+			Destroy  = function() pcall(function() t:Remove() end) end,
+		}
+	end
+	-- ButtonRow -> fila de botones (Group "row"), o botones sueltos si falla.
+	tab.CreateButtonRow = function(self, p)
+		local btns = p.Buttons or p.buttons or {}
+		local ok, row = pcall(function() return self:CreateGroup({ direction = "row" }) end)
+		local host = (ok and row) or self
+		for _, b in ipairs(btns) do
+			pcall(function() host:CreateButton({ name = b.Name or b.name, callback = b.Callback or b.callback }) end)
+		end
+	end
+	-- ThemeManager -> selector de temas (incluye "Aster").
+	tab.CreateThemeManager = function(self)
+		pcall(function() self:CreateSection({ name = "Themes" }) end)
+		pcall(function()
+			self:CreateDropdown({
+				name = "Theme",
+				options = { "Aster", "Default", "Amethyst", "Cobalt", "Ember", "Frost", "Rose" },
+				value = "Aster",
+				callback = function(v)
+					if type(v) == "table" then v = v[1] end
+					if v == "Aster" then Window:ChangeTheme(AsterTheme) else Window:ChangeTheme(string.lower(v)) end
+				end,
+			})
+		end)
+	end
+	-- ConfigManager -> guardar/cargar config con nombre.
+	tab.CreateConfigManager = function(self)
+		pcall(function() self:CreateSection({ name = "Configs" }) end)
+		local box
+		pcall(function() box = self:CreateInput({ name = "Config name", placeholder = "NovaHub", value = "" }) end)
+		pcall(function() self:CreateButton({ name = "Guardar config", callback = function() pcall(function() Window:Save(box and box.value) end) end }) end)
+		pcall(function() self:CreateButton({ name = "Cargar config", callback = function() pcall(function() Window:Load(box and box.value) end) end }) end)
+	end
+	return tab
+end
 
 -- helpers que puentean Rayfield -> backend de Nova (State + onToggle + Engine)
 local function mkTab(title, icon)
 	local ok, t = pcall(function() return Window:CreateTab({ Name = title, Icon = icon }) end)
 	if not ok or not t then t = Window:CreateTab({ Name = title }) end
-	return t
+	return patchTab(t)
 end
 local function T(tab, title, flag, desc)              -- toggle ligado a onToggle
 	tab:CreateToggle({
