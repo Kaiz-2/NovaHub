@@ -1074,11 +1074,14 @@ gAtajos:CreateButtonRow({ Buttons = {
 } })
 -- updater vivo: demuestra Status:Set/:SetTone y Progress:Set
 task.spawn(function()
+	print("[NOVA-DBG] updater START; stNight nil?="..tostring(stNight==nil).." stHouses nil?="..tostring(stHouses==nil).." unloaded?="..tostring(Window and Window.unloaded))
+	local __it = 0
 	while Window and not Window.unloaded do
+		__it = __it + 1
 		local night = canToT()
 		local ready, total = houseReadyCounts()
 		local s = secsUntilChange()
-		pcall(function()
+		local __ok, __err = pcall(function()
 			if night then
 				stNight:Set(s and ("Noche · %ds"):format(math.floor(s)) or "DISPONIBLE (noche)")
 				stNight:SetTone("positive")
@@ -1090,8 +1093,10 @@ task.spawn(function()
 			stHouses:SetTone(ready > 0 and "positive" or "neutral")
 			prHouses:Set(total > 0 and math.floor(ready / total * 100) or 0)
 		end)
+		if __it <= 3 then print("[NOVA-DBG] iter="..__it.." night="..tostring(night).." ready="..tostring(ready).." total="..tostring(total).." setOk="..tostring(__ok).." err="..tostring(__err)) end
 		task.wait(2)
 	end
+	print("[NOVA-DBG] updater EXITED it="..__it)
 end)
 
 -- ===== FARM =====
