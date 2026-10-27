@@ -1063,13 +1063,17 @@ gAtajos:CreateButtonRow({ Buttons = {
 	{ Name = "Todo OFF", Callback = function() panic(); pcall(function() Window:Notify({ Title = "Nova", Content = "Todo apagado", Icon = "power" }) end) end },
 	{ Name = "Ir a Halloween", Callback = function() pcall(function() Window:SelectTab(tAdv) end) end },
 } })
--- updater vivo: demuestra Status:Set/:SetTone y Progress:Set
-task.spawn(function()
-	elevateThread()
-	print("[NOVA-DBG] updater START (elevado); stNight nil?="..tostring(stNight==nil))
-	local __it = 0
-	while Window and not Window.unloaded do
-		__it = __it + 1
+-- updater vivo. Conducido por Heartbeat (no task.spawn): el callback hereda la
+-- capability del hilo que conecta, que SÍ puede escribir la UI del stock; un
+-- task.spawn la pierde cuando Nova llega por HttpGet.
+do
+	local acc = 2
+	local conn
+	conn = RunService.Heartbeat:Connect(function(dt)
+		if not Window or Window.unloaded then if conn then conn:Disconnect() end return end
+		acc = acc + dt
+		if acc < 2 then return end
+		acc = 0
 		local night = canToT()
 		local ready, total = houseReadyCounts()
 		local s = secsUntilChange()
@@ -1085,11 +1089,9 @@ task.spawn(function()
 			stHouses:SetTone(ready > 0 and "positive" or "neutral")
 			prHouses:Set(total > 0 and math.floor(ready / total * 100) or 0)
 		end)
-		if __it <= 3 then print("[NOVA-DBG] iter="..__it.." night="..tostring(night).." ready="..tostring(ready).." total="..tostring(total).." setOk="..tostring(__ok).." err="..tostring(__err)) end
-		task.wait(2)
-	end
-	print("[NOVA-DBG] updater EXITED it="..__it)
-end)
+		if not getgenv().__nova_dbg1 then getgenv().__nova_dbg1 = true; print("[NOVA-DBG] HB first set ok="..tostring(__ok).." err="..tostring(__err)) end
+	end)
+end
 
 -- ===== FARM =====
 local tFarm = mkTab("Farm", "sprout")
