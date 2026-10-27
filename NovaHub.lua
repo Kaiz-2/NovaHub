@@ -927,7 +927,15 @@ end
 -- creación de elementos a la propia pestaña (layout en una sola columna).
 local function makeGroupbox(tab, props)
 	local title = props and (props.Name or props.name)
-	if title then pcall(function() tab:CreateSection({ name = title }) end) end
+	-- cabecera perezosa: la Section se pinta justo antes del primer elemento del
+	-- groupbox, así dos groupboxes abiertos a la vez (Overview) no juntan sus títulos.
+	local headerDone = false
+	local function ensureHeader()
+		if title and not headerDone then
+			headerDone = true
+			pcall(function() tab:CreateSection({ name = title }) end)
+		end
+	end
 	local g = {}
 	for _, m in ipairs({
 		"CreateToggle", "CreateSlider", "CreateDropdown", "CreateInput", "CreateKeybind",
@@ -935,7 +943,7 @@ local function makeGroupbox(tab, props)
 		"CreateStatus", "CreateParagraph", "CreateButtonRow", "CreateSection",
 		"CreateDivider", "CreateText",
 	}) do
-		g[m] = function(_, p) return tab[m](tab, p) end
+		g[m] = function(_, p) ensureHeader(); return tab[m](tab, p) end
 	end
 	g.Collapse = function() end; g.Expand = function() end
 	g.SetTitle = function() end; g.SetBadge = function() end
