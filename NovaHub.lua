@@ -899,6 +899,17 @@ local Window = Rayfield:CreateWindow({
 })
 if getgenv then getgenv().__NovaWindow = Window end
 
+-- El stock parquea su UI en gethui() (contenedor protegido). El código que
+-- llega por HttpGet corre con capability REDUCIDA, así que escribir esa UI
+-- desde los hilos de Nova (task.spawn) lanza "lacking capability Plugin".
+-- elevateThread() sube la identidad del hilo ACTUAL; hay que llamarla dentro
+-- de cada bucle que toque la UI (al inicio de su task.spawn).
+local function elevateThread()
+	pcall(function() if setthreadidentity then setthreadidentity(8) end end)
+	pcall(function() if syn and syn.set_thread_identity then syn.set_thread_identity(8) end end)
+	pcall(function() if setidentity then setidentity(8) end end)
+end
+
 --------------------------------------------------------------------------
 -- ADAPTADOR: añade al stock los métodos que la build de Aster tenía de más.
 -- (El stock acepta props PascalCase, así que no hace falta traducir claves.)
@@ -956,33 +967,13 @@ local function patchTab(tab)
 	tab.AddLeftGroupbox  = tab.CreateGroupbox
 	tab.AddRightGroupbox = tab.CreateGroupbox
 	-- Status (texto vivo) -> Text del stock, con :Set/:SetTone/:SetName.
-	-- El stock reconstruye los frames de las pestañas, lo que deja huérfano el
-	-- handle capturado al construir. Para que el texto vivo funcione siempre,
-	-- :Set además RE-LOCALIZA el label renderizado (el frame se llama como el
-	-- título) y lo escribe directo. Así es robusto a los rebuilds de Rayfield.
+	-- OJO: el stock mete su UI en gethui() (protegida). Escribirla desde los
+	-- hilos de Nova requiere capability elevada; los bucles que llaman a :Set
+	-- se elevan con elevateThread() (ver más abajo).
 	tab.CreateStatus = function(self, p)
-		local name = p.Name or p.name
-		local t = self:CreateText({ name = name, text = p.Text or p.text or "" })
-		local uiRoot
-		local function root()
-			if not uiRoot then pcall(function() uiRoot = gethui and gethui() end) end
-			return uiRoot or game:GetService("CoreGui")
-		end
-		-- localiza el TextLabel "cuerpo" del elemento cuyo frame se llama 'name'
-		local function body()
-			for _, d in ipairs(root():GetDescendants()) do
-				if d.Name == name and d:IsA("GuiObject") then
-					local lbl = d:FindFirstChild("TextLabel")
-					if lbl and lbl:IsA("TextLabel") then return lbl end
-				end
-			end
-		end
+		local t = self:CreateText({ name = p.Name or p.name, text = p.Text or p.text or "" })
 		return {
-			Set = function(_, v)
-				v = tostring(v)
-				pcall(function() t:Set(v) end)           -- mantiene el handle al día (rebuilds lo restauran)
-				pcall(function() local b = body(); if b then b.Text = v end end)
-			end,
+			Set     = function(_, v) pcall(function() t:Set(tostring(v)) end) end,
 			Get     = function() return t.text end,
 			SetTone = function() end,
 			SetColor = function() end,
@@ -1074,7 +1065,8 @@ gAtajos:CreateButtonRow({ Buttons = {
 } })
 -- updater vivo: demuestra Status:Set/:SetTone y Progress:Set
 task.spawn(function()
-	print("[NOVA-DBG] updater START; stNight nil?="..tostring(stNight==nil).." stHouses nil?="..tostring(stHouses==nil).." unloaded?="..tostring(Window and Window.unloaded))
+	elevateThread()
+	print("[NOVA-DBG] updater START (elevado); stNight nil?="..tostring(stNight==nil))
 	local __it = 0
 	while Window and not Window.unloaded do
 		__it = __it + 1
