@@ -956,10 +956,33 @@ local function patchTab(tab)
 	tab.AddLeftGroupbox  = tab.CreateGroupbox
 	tab.AddRightGroupbox = tab.CreateGroupbox
 	-- Status (texto vivo) -> Text del stock, con :Set/:SetTone/:SetName.
+	-- El stock reconstruye los frames de las pestañas, lo que deja huérfano el
+	-- handle capturado al construir. Para que el texto vivo funcione siempre,
+	-- :Set además RE-LOCALIZA el label renderizado (el frame se llama como el
+	-- título) y lo escribe directo. Así es robusto a los rebuilds de Rayfield.
 	tab.CreateStatus = function(self, p)
-		local t = self:CreateText({ name = p.Name or p.name, text = p.Text or p.text or "" })
+		local name = p.Name or p.name
+		local t = self:CreateText({ name = name, text = p.Text or p.text or "" })
+		local uiRoot
+		local function root()
+			if not uiRoot then pcall(function() uiRoot = gethui and gethui() end) end
+			return uiRoot or game:GetService("CoreGui")
+		end
+		-- localiza el TextLabel "cuerpo" del elemento cuyo frame se llama 'name'
+		local function body()
+			for _, d in ipairs(root():GetDescendants()) do
+				if d.Name == name and d:IsA("GuiObject") then
+					local lbl = d:FindFirstChild("TextLabel")
+					if lbl and lbl:IsA("TextLabel") then return lbl end
+				end
+			end
+		end
 		return {
-			Set     = function(_, v) pcall(function() t:Set(tostring(v)) end) end,
+			Set = function(_, v)
+				v = tostring(v)
+				pcall(function() t:Set(v) end)           -- mantiene el handle al día (rebuilds lo restauran)
+				pcall(function() local b = body(); if b then b.Text = v end end)
+			end,
 			Get     = function() return t.text end,
 			SetTone = function() end,
 			SetColor = function() end,
